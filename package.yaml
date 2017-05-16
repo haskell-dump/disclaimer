@@ -1,0 +1,9 @@
+name: disclaimer
+version: 0.1.0.0
+
+executables:
+  disclaimer:
+    main: Main.hs
+    dependencies:
+      - base
+      - mtl
