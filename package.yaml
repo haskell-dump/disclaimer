@@ -6,4 +6,4 @@ executables:
     main: Main.hs
     dependencies:
       - base
-      - mtl
+      - transformers
