@@ -1,5 +1,19 @@
 import Control.Applicative
-import Control.Monad.Writer
+
+-- import Control.Monad.Writer
+	{--
+	Prelude> :l Main.hs
+
+	Main.hs:2:8:
+		Could not find module ‘Control.Monad.Writer’
+		Perhaps you meant
+		  Control.Monad.Fix (from base-4.8.2.0)
+		  Control.Monad.Zip (from base-4.8.2.0)
+		Use -v to see a list of the files searched for.
+	Failed, modules loaded: none.
+	Prelude>
+	--}
+import Control.Monad.Trans.Writer
 import Data.Function
 
 -- | A lawyer-friendly container for minimal liability.
