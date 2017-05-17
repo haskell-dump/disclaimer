@@ -1,6 +1,7 @@
 import Control.Applicative
 import Control.Monad.Trans.Writer
 import Data.Function
+import Lenin
 
 -- | A lawyer-friendly container for minimal liability.
 -- The value may contain any finite ammount of disclaimers.
@@ -32,5 +33,5 @@ fixLegacyNum x = writer (n, msg)
 
 main :: IO ()
 main = do
-    print $ runWriter $ safeRectArea  2   21
+    print $ runWriter $ safeRectArea  2   (20 + lenin)
     print $ runWriter $ safeRectArea 13 5000
