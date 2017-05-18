@@ -1,7 +1,9 @@
-import Control.Monad.Trans.Writer
+module Main where
 
 import Disclaimer
 import Lenin
+
+import Control.Monad.Trans.Writer
 
 main :: IO ()
 main = do
