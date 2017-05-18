@@ -17,3 +17,13 @@ library:
   source-dirs: src
   dependencies:
     - transformers
+
+tests:
+  test:
+    main: Spec.hs
+    source-dirs: test
+    dependencies:
+      - disclaimer
+      - hspec
+      - QuickCheck
+      - transformers
