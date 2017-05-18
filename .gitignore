@@ -1,5 +1,6 @@
 # Repository specific patterns
 *.cabal
+*.swp
 
 # sorted default .gitignore from github/gitignore/Haskell.gitignore
 *.aux
@@ -12,7 +13,6 @@
 *.hp
 *.o
 *.prof
-*.swp
 .cabal-sandbox/
 .hpc
 .hsenv
