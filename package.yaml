@@ -1,18 +1,19 @@
 name: disclaimer
 version: 0.1.0.0
 
+dependencies:
+  - base
+
 executables:
   disclaimer:
     main: Main.hs
     source-dirs: app
     dependencies:
       - disclaimer
-      - base
       - transformers
 
 library:
   exposed-modules: Disclaimer
   source-dirs: src
   dependencies:
-    - base
     - transformers
