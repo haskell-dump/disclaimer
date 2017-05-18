@@ -27,3 +27,11 @@ tests:
       - hspec
       - QuickCheck
       - transformers
+
+benchmarks:
+  bench:
+    main: Benchmark.hs
+    source-dirs: bench
+    dependencies:
+      - disclaimer
+      - criterion
