@@ -1,9 +1,29 @@
 name: disclaimer
 version: 0.1.0.0
 
+dependencies:
+  - base
+
 executables:
   disclaimer:
     main: Main.hs
+    source-dirs: app
     dependencies:
-      - base
+      - disclaimer
+      - transformers
+
+library:
+  exposed-modules: Disclaimer
+  source-dirs: src
+  dependencies:
+    - transformers
+
+tests:
+  test:
+    main: Spec.hs
+    source-dirs: test
+    dependencies:
+      - disclaimer
+      - hspec
+      - QuickCheck
       - transformers
