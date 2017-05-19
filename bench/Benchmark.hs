@@ -2,6 +2,7 @@ import Disclaimer
 
 import Criterion.Main
 
+main :: IO ()
 main = defaultMain
     [ bgroup "rectArea"
         [ bench "unit square"     $ whnf (rectArea     1)     1
