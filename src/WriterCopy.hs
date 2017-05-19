@@ -12,7 +12,7 @@
 -- Stability   :  experimental
 -- Portability :  portable
 --
--- The lazy 'WriterT2' monad transformer, which adds collection of
+-- The lazy 'WriterT' monad transformer, which adds collection of
 -- outputs (such as a count or string output) to a given monad.
 --
 -- This monad transformer provides only limited access to the output
@@ -25,15 +25,15 @@
 
 module WriterCopy (
     -- * The Writer monad
-    WriterCopy,
+    Writer,
     writer,
     runWriter,
     execWriter,
     mapWriter,
-    -- * The WriterT2 monad transformer
-    WriterT2(..),
-    execWriterT2,
-    mapWriterT2,
+    -- * The WriterT monad transformer
+    WriterT(..),
+    execWriterT,
+    mapWriterT,
     -- * Writer operations
     tell,
     listen,
@@ -66,24 +66,24 @@ import Prelude hiding (null, length)
 --
 -- The 'return' function produces the output 'mempty', while @>>=@
 -- combines the outputs of the subcomputations using 'mappend'.
-type WriterCopy w = WriterT2 w Identity
+type Writer w = WriterT w Identity
 
 -- | Construct a writer computation from a (result, output) pair.
 -- (The inverse of 'runWriter'.)
-writer :: (Monad m) => (a, w) -> WriterT2 w m a
-writer = WriterT2 . return
+writer :: (Monad m) => (a, w) -> WriterT w m a
+writer = WriterT . return
 {-# INLINE writer #-}
 
 -- | Unwrap a writer computation as a (result, output) pair.
 -- (The inverse of 'writer'.)
-runWriter :: WriterCopy w a -> (a, w)
-runWriter = runIdentity . runWriterT2
+runWriter :: Writer w a -> (a, w)
+runWriter = runIdentity . runWriterT
 {-# INLINE runWriter #-}
 
 -- | Extract the output from a writer computation.
 --
 -- * @'execWriter' m = 'snd' ('runWriter' m)@
-execWriter :: WriterCopy w a -> w
+execWriter :: Writer w a -> w
 execWriter m = snd (runWriter m)
 {-# INLINE execWriter #-}
 
@@ -91,8 +91,8 @@ execWriter m = snd (runWriter m)
 -- the given function.
 --
 -- * @'runWriter' ('mapWriter' f m) = f ('runWriter' m)@
-mapWriter :: ((a, w) -> (b, w')) -> WriterCopy w a -> WriterCopy w' b
-mapWriter f = mapWriterT2 (Identity . f . runIdentity)
+mapWriter :: ((a, w) -> (b, w')) -> Writer w a -> Writer w' b
+mapWriter f = mapWriterT (Identity . f . runIdentity)
 {-# INLINE mapWriter #-}
 
 -- ---------------------------------------------------------------------------
@@ -104,133 +104,133 @@ mapWriter f = mapWriterT2 (Identity . f . runIdentity)
 --
 -- The 'return' function produces the output 'mempty', while @>>=@
 -- combines the outputs of the subcomputations using 'mappend'.
-newtype WriterT2 w m a = WriterT2 { runWriterT2 :: m (a, w) }
+newtype WriterT w m a = WriterT { runWriterT :: m (a, w) }
 
-instance (Eq w, Eq1 m) => Eq1 (WriterT2 w m) where
-    liftEq eq (WriterT2 m1) (WriterT2 m2) = liftEq (liftEq2 eq (==)) m1 m2
+instance (Eq w, Eq1 m) => Eq1 (WriterT w m) where
+    liftEq eq (WriterT m1) (WriterT m2) = liftEq (liftEq2 eq (==)) m1 m2
     {-# INLINE liftEq #-}
 
-instance (Ord w, Ord1 m) => Ord1 (WriterT2 w m) where
-    liftCompare comp (WriterT2 m1) (WriterT2 m2) =
+instance (Ord w, Ord1 m) => Ord1 (WriterT w m) where
+    liftCompare comp (WriterT m1) (WriterT m2) =
         liftCompare (liftCompare2 comp compare) m1 m2
     {-# INLINE liftCompare #-}
 
-instance (Read w, Read1 m) => Read1 (WriterT2 w m) where
+instance (Read w, Read1 m) => Read1 (WriterT w m) where
     liftReadsPrec rp rl = readsData $
-        readsUnaryWith (liftReadsPrec rp' rl') "WriterT2" WriterT2
+        readsUnaryWith (liftReadsPrec rp' rl') "WriterT" WriterT
       where
         rp' = liftReadsPrec2 rp rl readsPrec readList
         rl' = liftReadList2 rp rl readsPrec readList
 
-instance (Show w, Show1 m) => Show1 (WriterT2 w m) where
-    liftShowsPrec sp sl d (WriterT2 m) =
-        showsUnaryWith (liftShowsPrec sp' sl') "WriterT2" d m
+instance (Show w, Show1 m) => Show1 (WriterT w m) where
+    liftShowsPrec sp sl d (WriterT m) =
+        showsUnaryWith (liftShowsPrec sp' sl') "WriterT" d m
       where
         sp' = liftShowsPrec2 sp sl showsPrec showList
         sl' = liftShowList2 sp sl showsPrec showList
 
-instance (Eq w, Eq1 m, Eq a) => Eq (WriterT2 w m a) where (==) = eq1
-instance (Ord w, Ord1 m, Ord a) => Ord (WriterT2 w m a) where compare = compare1
-instance (Read w, Read1 m, Read a) => Read (WriterT2 w m a) where
+instance (Eq w, Eq1 m, Eq a) => Eq (WriterT w m a) where (==) = eq1
+instance (Ord w, Ord1 m, Ord a) => Ord (WriterT w m a) where compare = compare1
+instance (Read w, Read1 m, Read a) => Read (WriterT w m a) where
     readsPrec = readsPrec1
-instance (Show w, Show1 m, Show a) => Show (WriterT2 w m a) where
+instance (Show w, Show1 m, Show a) => Show (WriterT w m a) where
     showsPrec = showsPrec1
 
 -- | Extract the output from a writer computation.
 --
--- * @'execWriterT2' m = 'liftM' 'snd' ('runWriterT2' m)@
-execWriterT2 :: (Monad m) => WriterT2 w m a -> m w
-execWriterT2 m = do
-    ~(_, w) <- runWriterT2 m
+-- * @'execWriterT' m = 'liftM' 'snd' ('runWriterT' m)@
+execWriterT :: (Monad m) => WriterT w m a -> m w
+execWriterT m = do
+    ~(_, w) <- runWriterT m
     return w
-{-# INLINE execWriterT2 #-}
+{-# INLINE execWriterT #-}
 
 -- | Map both the return value and output of a computation using
 -- the given function.
 --
--- * @'runWriterT2' ('mapWriterT2' f m) = f ('runWriterT2' m)@
-mapWriterT2 :: (m (a, w) -> n (b, w')) -> WriterT2 w m a -> WriterT2 w' n b
-mapWriterT2 f m = WriterT2 $ f (runWriterT2 m)
-{-# INLINE mapWriterT2 #-}
+-- * @'runWriterT' ('mapWriterT' f m) = f ('runWriterT' m)@
+mapWriterT :: (m (a, w) -> n (b, w')) -> WriterT w m a -> WriterT w' n b
+mapWriterT f m = WriterT $ f (runWriterT m)
+{-# INLINE mapWriterT #-}
 
-instance (Functor m) => Functor (WriterT2 w m) where
-    fmap f = mapWriterT2 $ fmap $ \ ~(a, w) -> (f a, w)
+instance (Functor m) => Functor (WriterT w m) where
+    fmap f = mapWriterT $ fmap $ \ ~(a, w) -> (f a, w)
     {-# INLINE fmap #-}
 
-instance (Foldable f) => Foldable (WriterT2 w f) where
-    foldMap f = foldMap (f . fst) . runWriterT2
+instance (Foldable f) => Foldable (WriterT w f) where
+    foldMap f = foldMap (f . fst) . runWriterT
     {-# INLINE foldMap #-}
-    null (WriterT2 t) = null t
-    length (WriterT2 t) = length t
+    null (WriterT t) = null t
+    length (WriterT t) = length t
 
-instance (Traversable f) => Traversable (WriterT2 w f) where
-    traverse f = fmap WriterT2 . traverse f' . runWriterT2 where
+instance (Traversable f) => Traversable (WriterT w f) where
+    traverse f = fmap WriterT . traverse f' . runWriterT where
        f' (a, b) = fmap (\ c -> (c, b)) (f a)
     {-# INLINE traverse #-}
 
-instance (Monoid w, Applicative m) => Applicative (WriterT2 w m) where
-    pure a  = WriterT2 $ pure (a, mempty)
+instance (Monoid w, Applicative m) => Applicative (WriterT w m) where
+    pure a  = WriterT $ pure (a, mempty)
     {-# INLINE pure #-}
-    f <*> v = WriterT2 $ liftA2 k (runWriterT2 f) (runWriterT2 v)
+    f <*> v = WriterT $ liftA2 k (runWriterT f) (runWriterT v)
       where k ~(a, w) ~(b, w') = (a b, w `mappend` w')
     {-# INLINE (<*>) #-}
 
-instance (Monoid w, Alternative m) => Alternative (WriterT2 w m) where
-    empty   = WriterT2 empty
+instance (Monoid w, Alternative m) => Alternative (WriterT w m) where
+    empty   = WriterT empty
     {-# INLINE empty #-}
-    m <|> n = WriterT2 $ runWriterT2 m <|> runWriterT2 n
+    m <|> n = WriterT $ runWriterT m <|> runWriterT n
     {-# INLINE (<|>) #-}
 
-instance (Monoid w, Monad m) => Monad (WriterT2 w m) where
-    m >>= k  = WriterT2 $ do
-        ~(a, w)  <- runWriterT2 m
-        ~(b, w') <- runWriterT2 (k a)
+instance (Monoid w, Monad m) => Monad (WriterT w m) where
+    m >>= k  = WriterT $ do
+        ~(a, w)  <- runWriterT m
+        ~(b, w') <- runWriterT (k a)
         return (b, w `mappend` w')
     {-# INLINE (>>=) #-}
-    fail msg = WriterT2 $ fail msg
+    fail msg = WriterT $ fail msg
     {-# INLINE fail #-}
 
-instance (Monoid w, Fail.MonadFail m) => Fail.MonadFail (WriterT2 w m) where
-    fail msg = WriterT2 $ Fail.fail msg
+instance (Monoid w, Fail.MonadFail m) => Fail.MonadFail (WriterT w m) where
+    fail msg = WriterT $ Fail.fail msg
     {-# INLINE fail #-}
 
-instance (Monoid w, MonadPlus m) => MonadPlus (WriterT2 w m) where
-    mzero       = WriterT2 mzero
+instance (Monoid w, MonadPlus m) => MonadPlus (WriterT w m) where
+    mzero       = WriterT mzero
     {-# INLINE mzero #-}
-    m `mplus` n = WriterT2 $ runWriterT2 m `mplus` runWriterT2 n
+    m `mplus` n = WriterT $ runWriterT m `mplus` runWriterT n
     {-# INLINE mplus #-}
 
-instance (Monoid w, MonadFix m) => MonadFix (WriterT2 w m) where
-    mfix m = WriterT2 $ mfix $ \ ~(a, _) -> runWriterT2 (m a)
+instance (Monoid w, MonadFix m) => MonadFix (WriterT w m) where
+    mfix m = WriterT $ mfix $ \ ~(a, _) -> runWriterT (m a)
     {-# INLINE mfix #-}
 
-instance (Monoid w) => MonadTrans (WriterT2 w) where
-    lift m = WriterT2 $ do
+instance (Monoid w) => MonadTrans (WriterT w) where
+    lift m = WriterT $ do
         a <- m
         return (a, mempty)
     {-# INLINE lift #-}
 
-instance (Monoid w, MonadIO m) => MonadIO (WriterT2 w m) where
+instance (Monoid w, MonadIO m) => MonadIO (WriterT w m) where
     liftIO = lift . liftIO
     {-# INLINE liftIO #-}
 
-instance (Monoid w, MonadZip m) => MonadZip (WriterT2 w m) where
-    mzipWith f (WriterT2 x) (WriterT2 y) = WriterT2 $
+instance (Monoid w, MonadZip m) => MonadZip (WriterT w m) where
+    mzipWith f (WriterT x) (WriterT y) = WriterT $
         mzipWith (\ ~(a, w) ~(b, w') -> (f a b, w `mappend` w')) x y
     {-# INLINE mzipWith #-}
 
 -- | @'tell' w@ is an action that produces the output @w@.
-tell :: (Monad m) => w -> WriterT2 w m ()
+tell :: (Monad m) => w -> WriterT w m ()
 tell w = writer ((), w)
 {-# INLINE tell #-}
 
 -- | @'listen' m@ is an action that executes the action @m@ and adds its
 -- output to the value of the computation.
 --
--- * @'runWriterT2' ('listen' m) = 'liftM' (\\ (a, w) -> ((a, w), w)) ('runWriterT2' m)@
-listen :: (Monad m) => WriterT2 w m a -> WriterT2 w m (a, w)
-listen m = WriterT2 $ do
-    ~(a, w) <- runWriterT2 m
+-- * @'runWriterT' ('listen' m) = 'liftM' (\\ (a, w) -> ((a, w), w)) ('runWriterT' m)@
+listen :: (Monad m) => WriterT w m a -> WriterT w m (a, w)
+listen m = WriterT $ do
+    ~(a, w) <- runWriterT m
     return ((a, w), w)
 {-# INLINE listen #-}
 
@@ -239,10 +239,10 @@ listen m = WriterT2 $ do
 --
 -- * @'listens' f m = 'liftM' (id *** f) ('listen' m)@
 --
--- * @'runWriterT2' ('listens' f m) = 'liftM' (\\ (a, w) -> ((a, f w), w)) ('runWriterT2' m)@
-listens :: (Monad m) => (w -> b) -> WriterT2 w m a -> WriterT2 w m (a, b)
-listens f m = WriterT2 $ do
-    ~(a, w) <- runWriterT2 m
+-- * @'runWriterT' ('listens' f m) = 'liftM' (\\ (a, w) -> ((a, f w), w)) ('runWriterT' m)@
+listens :: (Monad m) => (w -> b) -> WriterT w m a -> WriterT w m (a, b)
+listens f m = WriterT $ do
+    ~(a, w) <- runWriterT m
     return ((a, f w), w)
 {-# INLINE listens #-}
 
@@ -250,10 +250,10 @@ listens f m = WriterT2 $ do
 -- a value and a function, and returns the value, applying the function
 -- to the output.
 --
--- * @'runWriterT2' ('pass' m) = 'liftM' (\\ ((a, f), w) -> (a, f w)) ('runWriterT2' m)@
-pass :: (Monad m) => WriterT2 w m (a, w -> w) -> WriterT2 w m a
-pass m = WriterT2 $ do
-    ~((a, f), w) <- runWriterT2 m
+-- * @'runWriterT' ('pass' m) = 'liftM' (\\ ((a, f), w) -> (a, f w)) ('runWriterT' m)@
+pass :: (Monad m) => WriterT w m (a, w -> w) -> WriterT w m a
+pass m = WriterT $ do
+    ~((a, f), w) <- runWriterT m
     return (a, f w)
 {-# INLINE pass #-}
 
@@ -263,23 +263,23 @@ pass m = WriterT2 $ do
 --
 -- * @'censor' f m = 'pass' ('liftM' (\\ x -> (x,f)) m)@
 --
--- * @'runWriterT2' ('censor' f m) = 'liftM' (\\ (a, w) -> (a, f w)) ('runWriterT2' m)@
-censor :: (Monad m) => (w -> w) -> WriterT2 w m a -> WriterT2 w m a
-censor f m = WriterT2 $ do
-    ~(a, w) <- runWriterT2 m
+-- * @'runWriterT' ('censor' f m) = 'liftM' (\\ (a, w) -> (a, f w)) ('runWriterT' m)@
+censor :: (Monad m) => (w -> w) -> WriterT w m a -> WriterT w m a
+censor f m = WriterT $ do
+    ~(a, w) <- runWriterT m
     return (a, f w)
 {-# INLINE censor #-}
 
 -- | Lift a @callCC@ operation to the new monad.
-liftCallCC :: (Monoid w) => CallCC m (a,w) (b,w) -> CallCC (WriterT2 w m) a b
-liftCallCC callCC f = WriterT2 $
+liftCallCC :: (Monoid w) => CallCC m (a,w) (b,w) -> CallCC (WriterT w m) a b
+liftCallCC callCC f = WriterT $
     callCC $ \ c ->
-    runWriterT2 (f (\ a -> WriterT2 $ c (a, mempty)))
+    runWriterT (f (\ a -> WriterT $ c (a, mempty)))
 {-# INLINE liftCallCC #-}
 
 -- | Lift a @catchE@ operation to the new monad.
-liftCatch :: Catch e m (a,w) -> Catch e (WriterT2 w m) a
+liftCatch :: Catch e m (a,w) -> Catch e (WriterT w m) a
 liftCatch catchE m h =
-    WriterT2 $ runWriterT2 m `catchE` \ e -> runWriterT2 (h e)
+    WriterT $ runWriterT m `catchE` \ e -> runWriterT (h e)
 {-# INLINE liftCatch #-}
 

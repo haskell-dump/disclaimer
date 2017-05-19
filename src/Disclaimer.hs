@@ -10,7 +10,7 @@ import Data.Function
 
 -- | A lawyer-friendly container for minimal liability.
 -- The value may contain any finite ammount of disclaimers.
-type Disclaim a = WriterCopy [String] a
+type Disclaim a = WriterCopy.Writer [String] a
 
 -- | Calculate the area of a rectangle.
 rectArea :: Int -> Int -> Int
