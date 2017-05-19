@@ -4,7 +4,6 @@ module Disclaimer (
         rectArea) where
 
 import Control.Applicative
-import Control.Monad.Trans.Writer
 import WriterCopy
 import Data.Function
 
