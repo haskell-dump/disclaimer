@@ -1,7 +1,8 @@
 module Disclaimer where
 
 import Control.Applicative
-import Control.Monad.Trans.Writer
+--import Control.Monad.Trans.Writer
+import WriterCopy
 import Data.Function
 
 -- | A lawyer-friendly container for minimal liability.

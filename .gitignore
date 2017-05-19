@@ -1,6 +1,7 @@
 # Repository specific patterns
 *.cabal
 *.swp
+*.html
 
 # sorted default .gitignore from github/gitignore/Haskell.gitignore
 *.aux
