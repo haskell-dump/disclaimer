@@ -1,5 +1,6 @@
 module Disclaimer (
         WriterCopy.runWriter,
+        fixLegacyNum,
         safeRectArea,
         rectArea) where
 
