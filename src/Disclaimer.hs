@@ -1,7 +1,7 @@
 module Disclaimer (
-	WriterCopy.runWriter,
-	safeRectArea,
-	rectArea) where
+        WriterCopy.runWriter,
+        safeRectArea,
+        rectArea) where
 
 import Control.Applicative
 import Control.Monad.Trans.Writer
