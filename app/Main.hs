@@ -3,7 +3,8 @@ module Main where
 import Disclaimer
 import Lenin
 
-import Control.Monad.Trans.Writer
+-- import Control.Monad.Trans.Writer
+-- import WriterCopy
 
 main :: IO ()
 main = do

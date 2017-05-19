@@ -3,7 +3,7 @@
 {-# LANGUAGE AutoDeriveTypeable #-}
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Monad.Trans.State.Lazy
+-- Module      :  Control.Monad.Trans.Writer.Lazy
 -- Copyright   :  (c) Andy Gill 2001,
 --                (c) Oregon Graduate Institute of Science and Technology, 2001
 -- License     :  BSD-style (see the file LICENSE)
@@ -12,392 +12,274 @@
 -- Stability   :  experimental
 -- Portability :  portable
 --
--- Lazy state monads, passing an updatable state through a computation.
--- See below for examples.
+-- The lazy 'WriterT2' monad transformer, which adds collection of
+-- outputs (such as a count or string output) to a given monad.
 --
--- Some computations may not require the full power of state transformers:
+-- This monad transformer provides only limited access to the output
+-- during the computation.  For more general access, use
+-- "Control.Monad.Trans.State" instead.
 --
--- * For a read-only state, see "Control.Monad.Trans.Reader".
---
--- * To accumulate a value without using it on the way, see
---   "Control.Monad.Trans.Writer".
---
--- In this version, sequencing of computations is lazy, so that for
--- example the following produces a usable result:
---
--- > evalState (sequence $ repeat $ do { n <- get; put (n*2); return n }) 1
---
--- For a strict version with the same interface, see
--- "Control.Monad.Trans.State.Strict".
+-- This version builds its output lazily; for a strict version with
+-- the same interface, see "Control.Monad.Trans.Writer.Strict".
 -----------------------------------------------------------------------------
 
 module WriterCopy (
-    -- * The State monad
-    State,
-    state,
-    runState,
-    evalState,
-    execState,
-    mapState,
-    withState,
-    -- * The StateT monad transformer
-    StateT(..),
-    evalStateT,
-    execStateT,
-    mapStateT,
-    withStateT,
-    -- * State operations
-    get,
-    put,
-    modify,
-    modify',
-    gets,
+    -- * The Writer monad
+    WriterCopy,
+    writer,
+    runWriter,
+    execWriter,
+    mapWriter,
+    -- * The WriterT2 monad transformer
+    WriterT2(..),
+    execWriterT2,
+    mapWriterT2,
+    -- * Writer operations
+    tell,
+    listen,
+    listens,
+    pass,
+    censor,
     -- * Lifting other operations
     liftCallCC,
-    liftCallCC',
     liftCatch,
-    liftListen,
-    liftPass,
-    -- * Examples
-    -- ** State monads
-    -- $examples
-
-    -- ** Counting
-    -- $counting
-
-    -- ** Labelling trees
-    -- $labelling
   ) where
 
 import Control.Monad.IO.Class
-import Control.Monad.Signatures
 import Control.Monad.Trans.Class
+import Data.Functor.Classes
 import Data.Functor.Identity
 
 import Control.Applicative
 import Control.Monad
 import qualified Control.Monad.Fail as Fail
 import Control.Monad.Fix
+import Control.Monad.Signatures
+import Control.Monad.Zip (MonadZip(mzipWith))
+import Data.Foldable
+import Data.Monoid
+import Data.Traversable (Traversable(traverse))
+import Prelude hiding (null, length)
 
 -- ---------------------------------------------------------------------------
--- | A state monad parameterized by the type @s@ of the state to carry.
+-- | A writer monad parameterized by the type @w@ of output to accumulate.
 --
--- The 'return' function leaves the state unchanged, while @>>=@ uses
--- the final state of the first computation as the initial state of
--- the second.
-type State s = StateT s Identity
+-- The 'return' function produces the output 'mempty', while @>>=@
+-- combines the outputs of the subcomputations using 'mappend'.
+type WriterCopy w = WriterT2 w Identity
 
--- | Construct a state monad computation from a function.
--- (The inverse of 'runState'.)
-state :: (Monad m)
-      => (s -> (a, s))  -- ^pure state transformer
-      -> StateT s m a   -- ^equivalent state-passing computation
-state f = StateT (return . f)
-{-# INLINE state #-}
+-- | Construct a writer computation from a (result, output) pair.
+-- (The inverse of 'runWriter'.)
+writer :: (Monad m) => (a, w) -> WriterT2 w m a
+writer = WriterT2 . return
+{-# INLINE writer #-}
 
--- | Unwrap a state monad computation as a function.
--- (The inverse of 'state'.)
-runState :: State s a   -- ^state-passing computation to execute
-         -> s           -- ^initial state
-         -> (a, s)      -- ^return value and final state
-runState m = runIdentity . runStateT m
-{-# INLINE runState #-}
+-- | Unwrap a writer computation as a (result, output) pair.
+-- (The inverse of 'writer'.)
+runWriter :: WriterCopy w a -> (a, w)
+runWriter = runIdentity . runWriterT2
+{-# INLINE runWriter #-}
 
--- | Evaluate a state computation with the given initial state
--- and return the final value, discarding the final state.
+-- | Extract the output from a writer computation.
 --
--- * @'evalState' m s = 'fst' ('runState' m s)@
-evalState :: State s a  -- ^state-passing computation to execute
-          -> s          -- ^initial value
-          -> a          -- ^return value of the state computation
-evalState m s = fst (runState m s)
-{-# INLINE evalState #-}
+-- * @'execWriter' m = 'snd' ('runWriter' m)@
+execWriter :: WriterCopy w a -> w
+execWriter m = snd (runWriter m)
+{-# INLINE execWriter #-}
 
--- | Evaluate a state computation with the given initial state
--- and return the final state, discarding the final value.
---
--- * @'execState' m s = 'snd' ('runState' m s)@
-execState :: State s a  -- ^state-passing computation to execute
-          -> s          -- ^initial value
-          -> s          -- ^final state
-execState m s = snd (runState m s)
-{-# INLINE execState #-}
-
--- | Map both the return value and final state of a computation using
+-- | Map both the return value and output of a computation using
 -- the given function.
 --
--- * @'runState' ('mapState' f m) = f . 'runState' m@
-mapState :: ((a, s) -> (b, s)) -> State s a -> State s b
-mapState f = mapStateT (Identity . f . runIdentity)
-{-# INLINE mapState #-}
-
--- | @'withState' f m@ executes action @m@ on a state modified by
--- applying @f@.
---
--- * @'withState' f m = 'modify' f >> m@
-withState :: (s -> s) -> State s a -> State s a
-withState = withStateT
-{-# INLINE withState #-}
+-- * @'runWriter' ('mapWriter' f m) = f ('runWriter' m)@
+mapWriter :: ((a, w) -> (b, w')) -> WriterCopy w a -> WriterCopy w' b
+mapWriter f = mapWriterT2 (Identity . f . runIdentity)
+{-# INLINE mapWriter #-}
 
 -- ---------------------------------------------------------------------------
--- | A state transformer monad parameterized by:
+-- | A writer monad parameterized by:
 --
---   * @s@ - The state.
+--   * @w@ - the output to accumulate.
 --
 --   * @m@ - The inner monad.
 --
--- The 'return' function leaves the state unchanged, while @>>=@ uses
--- the final state of the first computation as the initial state of
--- the second.
-newtype StateT s m a = StateT { runStateT :: s -> m (a,s) }
+-- The 'return' function produces the output 'mempty', while @>>=@
+-- combines the outputs of the subcomputations using 'mappend'.
+newtype WriterT2 w m a = WriterT2 { runWriterT2 :: m (a, w) }
 
--- | Evaluate a state computation with the given initial state
--- and return the final value, discarding the final state.
+instance (Eq w, Eq1 m) => Eq1 (WriterT2 w m) where
+    liftEq eq (WriterT2 m1) (WriterT2 m2) = liftEq (liftEq2 eq (==)) m1 m2
+    {-# INLINE liftEq #-}
+
+instance (Ord w, Ord1 m) => Ord1 (WriterT2 w m) where
+    liftCompare comp (WriterT2 m1) (WriterT2 m2) =
+        liftCompare (liftCompare2 comp compare) m1 m2
+    {-# INLINE liftCompare #-}
+
+instance (Read w, Read1 m) => Read1 (WriterT2 w m) where
+    liftReadsPrec rp rl = readsData $
+        readsUnaryWith (liftReadsPrec rp' rl') "WriterT2" WriterT2
+      where
+        rp' = liftReadsPrec2 rp rl readsPrec readList
+        rl' = liftReadList2 rp rl readsPrec readList
+
+instance (Show w, Show1 m) => Show1 (WriterT2 w m) where
+    liftShowsPrec sp sl d (WriterT2 m) =
+        showsUnaryWith (liftShowsPrec sp' sl') "WriterT2" d m
+      where
+        sp' = liftShowsPrec2 sp sl showsPrec showList
+        sl' = liftShowList2 sp sl showsPrec showList
+
+instance (Eq w, Eq1 m, Eq a) => Eq (WriterT2 w m a) where (==) = eq1
+instance (Ord w, Ord1 m, Ord a) => Ord (WriterT2 w m a) where compare = compare1
+instance (Read w, Read1 m, Read a) => Read (WriterT2 w m a) where
+    readsPrec = readsPrec1
+instance (Show w, Show1 m, Show a) => Show (WriterT2 w m a) where
+    showsPrec = showsPrec1
+
+-- | Extract the output from a writer computation.
 --
--- * @'evalStateT' m s = 'liftM' 'fst' ('runStateT' m s)@
-evalStateT :: (Monad m) => StateT s m a -> s -> m a
-evalStateT m s = do
-    ~(a, _) <- runStateT m s
-    return a
-{-# INLINE evalStateT #-}
+-- * @'execWriterT2' m = 'liftM' 'snd' ('runWriterT2' m)@
+execWriterT2 :: (Monad m) => WriterT2 w m a -> m w
+execWriterT2 m = do
+    ~(_, w) <- runWriterT2 m
+    return w
+{-# INLINE execWriterT2 #-}
 
--- | Evaluate a state computation with the given initial state
--- and return the final state, discarding the final value.
---
--- * @'execStateT' m s = 'liftM' 'snd' ('runStateT' m s)@
-execStateT :: (Monad m) => StateT s m a -> s -> m s
-execStateT m s = do
-    ~(_, s') <- runStateT m s
-    return s'
-{-# INLINE execStateT #-}
-
--- | Map both the return value and final state of a computation using
+-- | Map both the return value and output of a computation using
 -- the given function.
 --
--- * @'runStateT' ('mapStateT' f m) = f . 'runStateT' m@
-mapStateT :: (m (a, s) -> n (b, s)) -> StateT s m a -> StateT s n b
-mapStateT f m = StateT $ f . runStateT m
-{-# INLINE mapStateT #-}
+-- * @'runWriterT2' ('mapWriterT2' f m) = f ('runWriterT2' m)@
+mapWriterT2 :: (m (a, w) -> n (b, w')) -> WriterT2 w m a -> WriterT2 w' n b
+mapWriterT2 f m = WriterT2 $ f (runWriterT2 m)
+{-# INLINE mapWriterT2 #-}
 
--- | @'withStateT' f m@ executes action @m@ on a state modified by
--- applying @f@.
---
--- * @'withStateT' f m = 'modify' f >> m@
-withStateT :: (s -> s) -> StateT s m a -> StateT s m a
-withStateT f m = StateT $ runStateT m . f
-{-# INLINE withStateT #-}
-
-instance (Functor m) => Functor (StateT s m) where
-    fmap f m = StateT $ \ s ->
-        fmap (\ ~(a, s') -> (f a, s')) $ runStateT m s
+instance (Functor m) => Functor (WriterT2 w m) where
+    fmap f = mapWriterT2 $ fmap $ \ ~(a, w) -> (f a, w)
     {-# INLINE fmap #-}
 
-instance (Functor m, Monad m) => Applicative (StateT s m) where
-    pure a = StateT $ \ s -> return (a, s)
-    {-# INLINE pure #-}
-    StateT mf <*> StateT mx = StateT $ \ s -> do
-        ~(f, s') <- mf s
-        ~(x, s'') <- mx s'
-        return (f x, s'')
-    {-# INLINE (<*>) #-}
-    (*>) = (>>)
+instance (Foldable f) => Foldable (WriterT2 w f) where
+    foldMap f = foldMap (f . fst) . runWriterT2
+    {-# INLINE foldMap #-}
+    null (WriterT2 t) = null t
+    length (WriterT2 t) = length t
 
-instance (Functor m, MonadPlus m) => Alternative (StateT s m) where
-    empty = StateT $ \ _ -> mzero
+instance (Traversable f) => Traversable (WriterT2 w f) where
+    traverse f = fmap WriterT2 . traverse f' . runWriterT2 where
+       f' (a, b) = fmap (\ c -> (c, b)) (f a)
+    {-# INLINE traverse #-}
+
+instance (Monoid w, Applicative m) => Applicative (WriterT2 w m) where
+    pure a  = WriterT2 $ pure (a, mempty)
+    {-# INLINE pure #-}
+    f <*> v = WriterT2 $ liftA2 k (runWriterT2 f) (runWriterT2 v)
+      where k ~(a, w) ~(b, w') = (a b, w `mappend` w')
+    {-# INLINE (<*>) #-}
+
+instance (Monoid w, Alternative m) => Alternative (WriterT2 w m) where
+    empty   = WriterT2 empty
     {-# INLINE empty #-}
-    StateT m <|> StateT n = StateT $ \ s -> m s `mplus` n s
+    m <|> n = WriterT2 $ runWriterT2 m <|> runWriterT2 n
     {-# INLINE (<|>) #-}
 
-instance (Monad m) => Monad (StateT s m) where
-    m >>= k  = StateT $ \ s -> do
-        ~(a, s') <- runStateT m s
-        runStateT (k a) s'
+instance (Monoid w, Monad m) => Monad (WriterT2 w m) where
+    m >>= k  = WriterT2 $ do
+        ~(a, w)  <- runWriterT2 m
+        ~(b, w') <- runWriterT2 (k a)
+        return (b, w `mappend` w')
     {-# INLINE (>>=) #-}
-    fail str = StateT $ \ _ -> fail str
+    fail msg = WriterT2 $ fail msg
     {-# INLINE fail #-}
 
-instance (Fail.MonadFail m) => Fail.MonadFail (StateT s m) where
-    fail str = StateT $ \ _ -> Fail.fail str
+instance (Monoid w, Fail.MonadFail m) => Fail.MonadFail (WriterT2 w m) where
+    fail msg = WriterT2 $ Fail.fail msg
     {-# INLINE fail #-}
 
-instance (MonadPlus m) => MonadPlus (StateT s m) where
-    mzero       = StateT $ \ _ -> mzero
+instance (Monoid w, MonadPlus m) => MonadPlus (WriterT2 w m) where
+    mzero       = WriterT2 mzero
     {-# INLINE mzero #-}
-    StateT m `mplus` StateT n = StateT $ \ s -> m s `mplus` n s
+    m `mplus` n = WriterT2 $ runWriterT2 m `mplus` runWriterT2 n
     {-# INLINE mplus #-}
 
-instance (MonadFix m) => MonadFix (StateT s m) where
-    mfix f = StateT $ \ s -> mfix $ \ ~(a, _) -> runStateT (f a) s
+instance (Monoid w, MonadFix m) => MonadFix (WriterT2 w m) where
+    mfix m = WriterT2 $ mfix $ \ ~(a, _) -> runWriterT2 (m a)
     {-# INLINE mfix #-}
 
-instance MonadTrans (StateT s) where
-    lift m = StateT $ \ s -> do
+instance (Monoid w) => MonadTrans (WriterT2 w) where
+    lift m = WriterT2 $ do
         a <- m
-        return (a, s)
+        return (a, mempty)
     {-# INLINE lift #-}
 
-instance (MonadIO m) => MonadIO (StateT s m) where
+instance (Monoid w, MonadIO m) => MonadIO (WriterT2 w m) where
     liftIO = lift . liftIO
     {-# INLINE liftIO #-}
 
--- | Fetch the current value of the state within the monad.
-get :: (Monad m) => StateT s m s
-get = state $ \ s -> (s, s)
-{-# INLINE get #-}
+instance (Monoid w, MonadZip m) => MonadZip (WriterT2 w m) where
+    mzipWith f (WriterT2 x) (WriterT2 y) = WriterT2 $
+        mzipWith (\ ~(a, w) ~(b, w') -> (f a b, w `mappend` w')) x y
+    {-# INLINE mzipWith #-}
 
--- | @'put' s@ sets the state within the monad to @s@.
-put :: (Monad m) => s -> StateT s m ()
-put s = state $ \ _ -> ((), s)
-{-# INLINE put #-}
+-- | @'tell' w@ is an action that produces the output @w@.
+tell :: (Monad m) => w -> WriterT2 w m ()
+tell w = writer ((), w)
+{-# INLINE tell #-}
 
--- | @'modify' f@ is an action that updates the state to the result of
--- applying @f@ to the current state.
+-- | @'listen' m@ is an action that executes the action @m@ and adds its
+-- output to the value of the computation.
 --
--- * @'modify' f = 'get' >>= ('put' . f)@
-modify :: (Monad m) => (s -> s) -> StateT s m ()
-modify f = state $ \ s -> ((), f s)
-{-# INLINE modify #-}
+-- * @'runWriterT2' ('listen' m) = 'liftM' (\\ (a, w) -> ((a, w), w)) ('runWriterT2' m)@
+listen :: (Monad m) => WriterT2 w m a -> WriterT2 w m (a, w)
+listen m = WriterT2 $ do
+    ~(a, w) <- runWriterT2 m
+    return ((a, w), w)
+{-# INLINE listen #-}
 
--- | A variant of 'modify' in which the computation is strict in the
--- new state.
+-- | @'listens' f m@ is an action that executes the action @m@ and adds
+-- the result of applying @f@ to the output to the value of the computation.
 --
--- * @'modify'' f = 'get' >>= (('$!') 'put' . f)@
-modify' :: (Monad m) => (s -> s) -> StateT s m ()
-modify' f = do
-    s <- get
-    put $! f s
-{-# INLINE modify' #-}
-
--- | Get a specific component of the state, using a projection function
--- supplied.
+-- * @'listens' f m = 'liftM' (id *** f) ('listen' m)@
 --
--- * @'gets' f = 'liftM' f 'get'@
-gets :: (Monad m) => (s -> a) -> StateT s m a
-gets f = state $ \ s -> (f s, s)
-{-# INLINE gets #-}
+-- * @'runWriterT2' ('listens' f m) = 'liftM' (\\ (a, w) -> ((a, f w), w)) ('runWriterT2' m)@
+listens :: (Monad m) => (w -> b) -> WriterT2 w m a -> WriterT2 w m (a, b)
+listens f m = WriterT2 $ do
+    ~(a, w) <- runWriterT2 m
+    return ((a, f w), w)
+{-# INLINE listens #-}
 
--- | Uniform lifting of a @callCC@ operation to the new monad.
--- This version rolls back to the original state on entering the
--- continuation.
-liftCallCC :: CallCC m (a,s) (b,s) -> CallCC (StateT s m) a b
-liftCallCC callCC f = StateT $ \ s ->
+-- | @'pass' m@ is an action that executes the action @m@, which returns
+-- a value and a function, and returns the value, applying the function
+-- to the output.
+--
+-- * @'runWriterT2' ('pass' m) = 'liftM' (\\ ((a, f), w) -> (a, f w)) ('runWriterT2' m)@
+pass :: (Monad m) => WriterT2 w m (a, w -> w) -> WriterT2 w m a
+pass m = WriterT2 $ do
+    ~((a, f), w) <- runWriterT2 m
+    return (a, f w)
+{-# INLINE pass #-}
+
+-- | @'censor' f m@ is an action that executes the action @m@ and
+-- applies the function @f@ to its output, leaving the return value
+-- unchanged.
+--
+-- * @'censor' f m = 'pass' ('liftM' (\\ x -> (x,f)) m)@
+--
+-- * @'runWriterT2' ('censor' f m) = 'liftM' (\\ (a, w) -> (a, f w)) ('runWriterT2' m)@
+censor :: (Monad m) => (w -> w) -> WriterT2 w m a -> WriterT2 w m a
+censor f m = WriterT2 $ do
+    ~(a, w) <- runWriterT2 m
+    return (a, f w)
+{-# INLINE censor #-}
+
+-- | Lift a @callCC@ operation to the new monad.
+liftCallCC :: (Monoid w) => CallCC m (a,w) (b,w) -> CallCC (WriterT2 w m) a b
+liftCallCC callCC f = WriterT2 $
     callCC $ \ c ->
-    runStateT (f (\ a -> StateT $ \ _ -> c (a, s))) s
+    runWriterT2 (f (\ a -> WriterT2 $ c (a, mempty)))
 {-# INLINE liftCallCC #-}
 
--- | In-situ lifting of a @callCC@ operation to the new monad.
--- This version uses the current state on entering the continuation.
--- It does not satisfy the uniformity property (see "Control.Monad.Signatures").
-liftCallCC' :: CallCC m (a,s) (b,s) -> CallCC (StateT s m) a b
-liftCallCC' callCC f = StateT $ \ s ->
-    callCC $ \ c ->
-    runStateT (f (\ a -> StateT $ \ s' -> c (a, s'))) s
-{-# INLINE liftCallCC' #-}
-
 -- | Lift a @catchE@ operation to the new monad.
-liftCatch :: Catch e m (a,s) -> Catch e (StateT s m) a
+liftCatch :: Catch e m (a,w) -> Catch e (WriterT2 w m) a
 liftCatch catchE m h =
-    StateT $ \ s -> runStateT m s `catchE` \ e -> runStateT (h e) s
+    WriterT2 $ runWriterT2 m `catchE` \ e -> runWriterT2 (h e)
 {-# INLINE liftCatch #-}
 
--- | Lift a @listen@ operation to the new monad.
-liftListen :: (Monad m) => Listen w m (a,s) -> Listen w (StateT s m) a
-liftListen listen m = StateT $ \ s -> do
-    ~((a, s'), w) <- listen (runStateT m s)
-    return ((a, w), s')
-{-# INLINE liftListen #-}
-
--- | Lift a @pass@ operation to the new monad.
-liftPass :: (Monad m) => Pass w m (a,s) -> Pass w (StateT s m) a
-liftPass pass m = StateT $ \ s -> pass $ do
-    ~((a, f), s') <- runStateT m s
-    return ((a, s'), f)
-{-# INLINE liftPass #-}
-
-{- $examples
-
-Parser from ParseLib with Hugs:
-
-> type Parser a = StateT String [] a
->    ==> StateT (String -> [(a,String)])
-
-For example, item can be written as:
-
-> item = do (x:xs) <- get
->        put xs
->        return x
->
-> type BoringState s a = StateT s Identity a
->      ==> StateT (s -> Identity (a,s))
->
-> type StateWithIO s a = StateT s IO a
->      ==> StateT (s -> IO (a,s))
->
-> type StateWithErr s a = StateT s Maybe a
->      ==> StateT (s -> Maybe (a,s))
-
--}
-
-{- $counting
-
-A function to increment a counter.
-Taken from the paper \"Generalising Monads to Arrows\",
-John Hughes (<http://www.cse.chalmers.se/~rjmh/>), November 1998:
-
-> tick :: State Int Int
-> tick = do n <- get
->           put (n+1)
->           return n
-
-Add one to the given number using the state monad:
-
-> plusOne :: Int -> Int
-> plusOne n = execState tick n
-
-A contrived addition example. Works only with positive numbers:
-
-> plus :: Int -> Int -> Int
-> plus n x = execState (sequence $ replicate n tick) x
-
--}
-
-{- $labelling
-
-An example from /The Craft of Functional Programming/, Simon
-Thompson (<http://www.cs.kent.ac.uk/people/staff/sjt/>),
-Addison-Wesley 1999: \"Given an arbitrary tree, transform it to a
-tree of integers in which the original elements are replaced by
-natural numbers, starting from 0.  The same element has to be
-replaced by the same number at every occurrence, and when we meet
-an as-yet-unvisited element we have to find a \'new\' number to match
-it with:\"
-
-> data Tree a = Nil | Node a (Tree a) (Tree a) deriving (Show, Eq)
-> type Table a = [a]
-
-> numberTree :: Eq a => Tree a -> State (Table a) (Tree Int)
-> numberTree Nil = return Nil
-> numberTree (Node x t1 t2) = do
->     num <- numberNode x
->     nt1 <- numberTree t1
->     nt2 <- numberTree t2
->     return (Node num nt1 nt2)
->   where
->     numberNode :: Eq a => a -> State (Table a) Int
->     numberNode x = do
->         table <- get
->         case elemIndex x table of
->             Nothing -> do
->                 put (table ++ [x])
->                 return (length table)
->             Just i -> return i
-
-numTree applies numberTree with an initial state:
-
-> numTree :: (Eq a) => Tree a -> Tree Int
-> numTree t = evalState (numberTree t) []
-
-> testTree = Node "Zero" (Node "One" (Node "Two" Nil Nil) (Node "One" (Node "Zero" Nil Nil) Nil)) Nil
-> numTree testTree => Node 0 (Node 1 (Node 2 Nil Nil) (Node 1 (Node 0 Nil Nil) Nil)) Nil
-
--}
