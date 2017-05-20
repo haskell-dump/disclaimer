@@ -2,7 +2,6 @@ module DisclaimerSpec where
 
 import Disclaimer
 
-import Control.Monad.Trans.Writer
 import Test.Hspec
 import Test.QuickCheck
 
