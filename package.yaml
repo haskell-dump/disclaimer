@@ -13,7 +13,10 @@ executables:
       - transformers
 
 library:
-  exposed-modules: Disclaimer
+  exposed-modules:
+    - Disclaimer
+    - SimpleCheck
+    - SimpleWriter
   source-dirs: src
   dependencies:
     - transformers
